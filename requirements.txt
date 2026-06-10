@@ -1,0 +1,11 @@
+torch
+diffusers>=0.30
+transformers
+accelerate
+sentencepiece
+protobuf
+numpy
+scipy
+Pillow
+matplotlib
+image-reward

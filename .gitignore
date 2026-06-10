@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.DS_Store
+results/
+outputs/
+runs/
+logs/
+*.png
+*.jpg
+*.jpeg
+*.pt
+*.safetensors
+*.bin
+.venv/
+.env
