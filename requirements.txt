@@ -9,3 +9,5 @@ scipy
 Pillow
 matplotlib
 image-reward
+# hpsv3: install separately (same package as fabric_implementation / methods A,B):
+#   pip install hpsv3        # provides hpsv3.HPSv3RewardInferencer
