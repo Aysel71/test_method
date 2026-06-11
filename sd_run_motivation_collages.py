@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy.fft import dctn, idctn
 
 from sd_common import load_pipe, generate_from_latent, get_radial, DEVICE
+from scorers import load_scorer, score_one
 
 PROMPT = "a portrait of a man"
 SEED = 42
@@ -41,8 +42,10 @@ C = 4
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--save_dir", type=str, default="results/sd_motivation1")
+    p.add_argument("--scorer", type=str, default="hpsv3",
+                   help="hpsv3 | imagereward | none  (label under each image)")
     p.add_argument("--skip_ir", action="store_true",
-                   help="skip ImageReward (faster)")
+                   help="alias for --scorer none (no scoring, faster)")
     p.add_argument("--thumb", type=int, default=256)
     return p.parse_args()
 
@@ -127,13 +130,12 @@ def make_collage(images, labels, title, thumb, n_cols=None):
 # All collages
 # ──────────────────────────────────────────────────────────────
 
-def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
+def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb):
 
     def gen_image(params_dict, method):
         z_mod = apply_mod(z_base_np, method, params_dict, low_idx)
         img = generate_from_latent(pipe, z_mod, PROMPT)
-        ir = 0.0 if skip_ir else float(scorer.score(PROMPT, img))
-        return img, ir
+        return img, score_one(scorer, img, PROMPT)
 
     def save(collage, name):
         collage.save(save_dir / f"{name}.png")
@@ -146,13 +148,13 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
     for a in alphas:
         img, ir = gen_image({"alpha": a}, "alpha")
         imgs.append(img)
-        lbls.append(f"a={a:.2f}\nIR={ir:.3f}")
+        lbls.append(f"a={a:.2f}\ns={ir:.3f}")
     save(make_collage(imgs, lbls,
         "A1 - Alpha sweep: DCT_low *= alpha", thumb), "A1_alpha_sweep")
 
     # ── A2: Alpha + IR ───────────────────────────────────────
-    lbls2 = [f"a={alphas[i]:.2f}  IR={float(scorer.score(PROMPT, imgs[i])):.3f}"
-             if not skip_ir else f"a={alphas[i]:.2f}"
+    lbls2 = [f"a={alphas[i]:.2f}  s={score_one(scorer, imgs[i], PROMPT):.3f}"
+             if scorer is not None else f"a={alphas[i]:.2f}"
              for i in range(len(imgs))]
     save(make_collage(imgs, lbls2,
         "A2 - Alpha sweep + ImageReward", thumb), "A2_alpha_with_ir")
@@ -180,7 +182,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
         c = np.zeros(K); c[0] = t
         img, ir = gen_image({"c": c}, "base")
         imgs_b1.append(img)
-        lbls_b1.append(f"c[0]={t}\nIR={ir:.3f}")
+        lbls_b1.append(f"c[0]={t}\ns={ir:.3f}")
     save(make_collage(imgs_b1, lbls_b1,
         "B1 - Base: shift only DC (coef 0)", thumb), "B1_base_dc_only")
 
@@ -193,7 +195,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
     for t in [-2, -1, 0, 1, 2]:
         img, ir = gen_image({"c": t * c_rand}, "base")
         imgs_b2.append(img)
-        lbls_b2.append(f"t={t}\nIR={ir:.3f}")
+        lbls_b2.append(f"t={t}\ns={ir:.3f}")
     save(make_collage(imgs_b2, lbls_b2,
         "B2 - Base: random direction  c = t * c_rand", thumb), "B2_base_random_dir")
 
@@ -205,7 +207,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
             c = np.zeros(K); c[ki] = t
             img, ir = gen_image({"c": c}, "base")
             imgs_b3.append(img)
-            lbls_b3.append(f"c[{ki}]={t}\nIR={ir:.3f}")
+            lbls_b3.append(f"c[{ki}]={t}\ns={ir:.3f}")
     save(make_collage(imgs_b3, lbls_b3,
         "B3 - Base: each coef separately  (rows=coef, cols=t)",
         thumb, n_cols=3), "B3_base_per_coef")
@@ -219,7 +221,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
             c = np.full(K, t, dtype=np.float32)
             img, ir = gen_image({"alpha": a, "c": c}, "affine_v1")
             imgs_v1a.append(img)
-            lbls_v1a.append(f"a={a} c={t}\nIR={ir:.3f}")
+            lbls_v1a.append(f"a={a} c={t}\ns={ir:.3f}")
     save(make_collage(imgs_v1a, lbls_v1a,
         "V1a - Affine v1 grid  (rows=alpha, cols=c)  alpha*DCT_low+c",
         thumb, n_cols=len(t_c_v1)), "V1a_affine_v1_grid")
@@ -230,12 +232,12 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
     for a in [0.25, 0.5, 1.0, 1.5, 2.0]:
         img, ir = gen_image({"alpha": a, "c": np.zeros(K)}, "affine_v1")
         imgs_v1b.append(img)
-        lbls_v1b.append(f"a={a} c=0\nIR={ir:.3f}")
+        lbls_v1b.append(f"a={a} c=0\ns={ir:.3f}")
     for t in [-2, -1, 0, 1, 2]:
         c = np.full(K, t, dtype=np.float32)
         img, ir = gen_image({"alpha": 1.0, "c": c}, "affine_v1")
         imgs_v1b.append(img)
-        lbls_v1b.append(f"a=1 c={t}\nIR={ir:.3f}")
+        lbls_v1b.append(f"a=1 c={t}\ns={ir:.3f}")
     save(make_collage(imgs_v1b, lbls_v1b,
         "V1b - Affine v1: row1 fix c=0 vary alpha | row2 fix alpha=1 vary c",
         thumb, n_cols=5), "V1b_affine_v1_two_rows")
@@ -247,7 +249,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
         a = np.ones(K); a[0] = a0
         img, ir = gen_image({"a": a, "c": np.zeros(K)}, "affine_v2")
         imgs_w1.append(img)
-        lbls_w1.append(f"a[0]={a0}\nIR={ir:.3f}")
+        lbls_w1.append(f"a[0]={a0}\ns={ir:.3f}")
     save(make_collage(imgs_w1, lbls_w1,
         "W1 - Affine v2: vary only a[0] (DC)", thumb), "W1_affine_v2_a0")
 
@@ -260,7 +262,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
             a = np.ones(K); a[0] = a0; a[1] = a1
             img, ir = gen_image({"a": a, "c": np.zeros(K)}, "affine_v2")
             imgs_w2.append(img)
-            lbls_w2.append(f"a0={a0}\na1={a1} IR={ir:.3f}")
+            lbls_w2.append(f"a0={a0}\na1={a1} s={ir:.3f}")
     save(make_collage(imgs_w2, lbls_w2,
         "W2 - Affine v2 grid a[0] x a[1]  (rows=a0, cols=a1)",
         thumb, n_cols=len(a01_vals)), "W2_affine_v2_grid")
@@ -274,7 +276,7 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb, skip_ir):
             a = np.ones(K); a[ki] = av
             img, ir = gen_image({"a": a, "c": np.zeros(K)}, "affine_v2")
             imgs_w3.append(img)
-            lbls_w3.append(f"a[{ki}]={av}\nIR={ir:.3f}")
+            lbls_w3.append(f"a[{ki}]={av}\ns={ir:.3f}")
     save(make_collage(imgs_w3, lbls_w3,
         "W3 - Affine v2: each a_i separately  (rows=coef, cols=a)",
         thumb, n_cols=len(a_sweep)), "W3_affine_v2_per_ai")
@@ -288,19 +290,15 @@ def main():
     print("=" * 60)
     print("SD-1.5 motivation experiment - 11 collages")
     print(f"PROMPT: {PROMPT}   SEED={SEED}  K={K}  thumb={args.thumb}")
-    print(f"skip_ir={args.skip_ir}")
+    print(f"scorer={'none' if args.skip_ir else args.scorer}")
     print("=" * 60)
 
     print("\n[1/3] Loading SD-1.5 ...")
     pipe = load_pipe()
 
-    scorer = None
-    if not args.skip_ir:
-        print("[2/3] Loading ImageReward...")
-        import ImageReward as RM
-        scorer = RM.load("ImageReward-v1.0", device=DEVICE)
-    else:
-        print("[2/3] ImageReward skipped (--skip_ir)")
+    scorer_name = "none" if args.skip_ir else args.scorer
+    print(f"[2/3] Loading scorer: {scorer_name} ...")
+    scorer = load_scorer(scorer_name, device=DEVICE)
 
     print("[3/3] Preparing base noise...")
     g = torch.Generator("cpu").manual_seed(SEED)
@@ -311,7 +309,7 @@ def main():
     print(f"Low freq idx: first {K} of {LH*LW} coefficients\n")
 
     t0 = time.time()
-    run_all(pipe, scorer, z_base_np, low_idx, save_dir, args.thumb, args.skip_ir)
+    run_all(pipe, scorer, z_base_np, low_idx, save_dir, args.thumb)
 
     print(f"\n{'='*60}")
     print(f"Done in {(time.time()-t0)/60:.1f} min  ->  {save_dir}/")
