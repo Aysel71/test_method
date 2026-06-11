@@ -32,6 +32,19 @@ SD knobs (model, steps, CFG, image size, seed) live at the top of `sd_common.py`
 Pass `--scorer hpsv3` to `sd_visualize_all_parametrizations_real.py` to print the
 HPSv3 score under each image in the collage.
 
+## Fine fixed-step grids
+
+`sd_fine_grids.py` sweeps every method on a dense fixed-STEP grid into a separate
+folder (`results/sd_fine_grids/`), HPSv3 under each image. Per-method steps are in
+the `FINE` dict (e.g. `chebyshev_phase`: c_0 ∈ [−5, 15] step 1 → 21 images).
+
+```bash
+python sd_fine_grids.py --scorer hpsv3 --save_dir results/sd_fine_grids
+python sd_fine_grids.py --methods chebyshev_phase --prompts fantasy     # one method/prompt
+python sd_fine_grids.py --step 0.5 --methods dct_affine                 # override step
+python sd_fine_grids.py --ncols 11                                      # wrap wide grids into rows
+```
+
 ## HPSv3 boundary calibration
 
 `calibrate_hpsv3.py` sweeps each parametrization over a deliberately-too-wide
