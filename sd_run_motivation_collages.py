@@ -42,6 +42,8 @@ C = 4
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--save_dir", type=str, default="results/sd_motivation1")
+    p.add_argument("--prompt", type=str, default=PROMPT,
+                   help="text prompt (default: portrait of a man)")
     p.add_argument("--scorer", type=str, default="hpsv3",
                    help="hpsv3 | imagereward | none  (label under each image)")
     p.add_argument("--skip_ir", action="store_true",
@@ -284,6 +286,8 @@ def run_all(pipe, scorer, z_base_np, low_idx, save_dir, thumb):
 
 def main():
     args = parse_args()
+    global PROMPT
+    PROMPT = args.prompt
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
