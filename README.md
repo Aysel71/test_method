@@ -29,6 +29,26 @@ python sd_visualize_signed_params.py --prompt "a dragon flying over a medieval c
 
 SD knobs (model, steps, CFG, image size, seed) live at the top of `sd_common.py`.
 
+Pass `--scorer hpsv3` to `sd_visualize_all_parametrizations_real.py` to print the
+HPSv3 score under each image in the collage.
+
+## HPSv3 boundary calibration
+
+`calibrate_hpsv3.py` sweeps each parametrization over a deliberately-too-wide
+grid, scores every SD-1.5 image with HPSv3, averages over prompts/seeds, and
+suggests a `[lo, hi]` range per method (widest interval around the neutral value
+where HPSv3 stays within `--margin` of the identity baseline).
+
+```bash
+python calibrate_hpsv3.py --save_dir results/calib_hpsv3 \
+    --n_values 15 --n_seeds 1 --margin 0.5
+```
+
+Outputs per method: `<method>.csv`, `<method>.png` (HPSv3-vs-param curve with the
+suggested range shaded), and `suggested_test_values.json`. `scorers.py` provides
+the unified `score_one(img, prompt)` API over HPSv3 / ImageReward (it copies the
+HPSv3 call convention from `fabric_implementation/fabric/hpsv3_scorer.py`).
+
 ## FLUX scripts (reference)
 
 | Script | Model | What it does |

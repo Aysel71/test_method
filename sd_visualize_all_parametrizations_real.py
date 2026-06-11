@@ -26,6 +26,7 @@ from sd_common import (
     load_pipe, get_base_latent, generate_from_latent,
     get_radial, get_low_idx, renormalize, SEED,
 )
+from scorers import load_scorer, score_one
 
 
 PROMPTS = [
@@ -45,6 +46,8 @@ def parse_args():
     p.add_argument("--save_dir", type=str, default="results/sd_all_parametrizations")
     p.add_argument("--prompts",  nargs="+", default=None)
     p.add_argument("--methods",  nargs="+", default=None)
+    p.add_argument("--scorer",   type=str, default="none",
+                   help="none | hpsv3 | imagereward  (label under each image)")
     return p.parse_args()
 
 
@@ -229,10 +232,14 @@ def make_collage(title, prompt, rows, save_path, subtitle=""):
         y = header_h + row_i * (thumb + pad)
         draw.text((pad, y + thumb // 2 - 10),
                   row_label, fill="#1E1E1E", font=font_med)
-        for col_j, (val, img) in enumerate(col_items):
+        for col_j, item in enumerate(col_items):
+            val, img = item[0], item[1]
+            score = item[2] if len(item) > 2 else None
             x = label_w + col_j * (thumb + pad)
             canvas.paste(img.resize((thumb, thumb), Image.LANCZOS), (x, y))
             val_str = f"{val:+.2f}" if isinstance(val, (int, float)) else str(val)
+            if score is not None:
+                val_str = f"{val_str}\nHPS={score:+.3f}"
             draw.text((x + 4, y + 4), val_str,
                       fill="#FFFFFF", font=font_sm,
                       stroke_width=2, stroke_fill="#000000")
@@ -246,7 +253,7 @@ def make_collage(title, prompt, rows, save_path, subtitle=""):
 METHODS = {
     'dct_affine': {
         'func': apply_dct_affine,
-        'test_values': [0.0, 0.3, 0.7, 1.0, 1.5, 2.5, 4.0],
+        'test_values': [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_1',
         'needs_low_idx': True,
@@ -255,61 +262,61 @@ METHODS = {
     },
     'power_law': {
         'func': apply_power_law,
-        'test_values': [-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0],
+        'test_values': [-3.0, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0],
         'base_theta': lambda val: [1.0, val, 0.0],
         'param_name': 'alpha',
         'needs_low_idx': False,
         'title': 'Power-law WIDE',
-        'subtitle': 'a(r) = A*(r+1)^(-alpha/2); alpha in [-2,+2]'
+        'subtitle': 'a(r) = A*(r+1)^(-alpha/2); alpha in [-3,+3]'
     },
     'log_bands': {
         'func': apply_log_bands,
-        'test_values': [0.1, 0.5, 0.8, 1.0, 1.5, 2.5, 4.0],
+        'test_values': [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_band1',
         'needs_low_idx': False,
         'title': 'Log-bands EXTREME',
-        'subtitle': '5 logarithmic frequency bands; low band in [0.1,4.0]'
+        'subtitle': '5 logarithmic frequency bands; low band in [0.0,4.0]'
     },
     'chebyshev': {
         'func': apply_chebyshev,
-        'test_values': [-0.8, -0.4, -0.1, 0.0, 0.1, 0.4, 0.8],
+        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'c_0',
         'needs_low_idx': False,
         'title': 'Chebyshev (amplitude) WIDE',
-        'subtitle': 'a(r) = exp(sum c_m T_m); c_0 in [-0.8,+0.8]'
+        'subtitle': 'a(r) = exp(sum c_m T_m); c_0 in [-1.2,+1.2]'
     },
     'bspline': {
         'func': apply_bspline,
-        'test_values': [-0.8, -0.4, -0.1, 0.0, 0.1, 0.4, 0.8],
+        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'y_1',
         'needs_low_idx': False,
         'title': 'B-spline WIDE',
-        'subtitle': 'spline through 6 knots; first knot in [-0.8,+0.8]'
+        'subtitle': 'spline through 6 knots; first knot in [-1.2,+1.2]'
     },
     'rbf': {
         'func': apply_rbf,
-        'test_values': [-0.8, -0.4, -0.1, 0.0, 0.1, 0.4, 0.8],
+        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
         'base_theta': lambda val: [0.0, 0.0, val, 0.0, 0.0, 0.0],
         'param_name': 'w_1',
         'needs_low_idx': False,
         'title': 'RBF WIDE',
-        'subtitle': 'linear base + 3 Gaussian bumps; low bump w in [-0.8,+0.8]'
+        'subtitle': 'linear base + 3 Gaussian bumps; low bump w in [-1.2,+1.2]'
     },
     'dct_affine_signed': {
         'func': apply_dct_affine_signed,
-        'test_values': [-5.0, -3.0, -1.0, 0.0, 1.0, 3.0, 5.0],
+        'test_values': [-6.0, -5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0, 6.0],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_1',
         'needs_low_idx': True,
         'title': 'DCT-affine SIGNED EXTREME',
-        'subtitle': 'a_i in [-5,+5]; negative = sign flip -> composition change'
+        'subtitle': 'a_i in [-6,+6]; negative = sign flip -> composition change'
     },
     'chebyshev_phase': {
         'func': apply_chebyshev_phase,
-        'test_values': [-15.0, -10.0, -5.0, 0.0, 5.0, 10.0, 15.0],
+        'test_values': [-15.0, -10.0, -7.0, -5.0, -2.0, 0.0, 2.0, 5.0, 7.0, 10.0, 15.0],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0],
         'param_name': 'c_0',
         'needs_low_idx': False,
@@ -340,6 +347,7 @@ def main():
 
     print("\nLoading SD-1.5 ...")
     pipe = load_pipe()
+    scorer = load_scorer(args.scorer, device="cuda")
 
     r = get_radial()
     low_idx = get_low_idx(r, K_AFFINE)
@@ -363,7 +371,10 @@ def main():
                 else:
                     z_mod = mc['func'](z_base, theta, r)
                 img = generate_from_latent(pipe, z_mod, p_text)
-                col_items.append((val, img))
+                if scorer is not None:
+                    col_items.append((val, img, score_one(scorer, img, p_text)))
+                else:
+                    col_items.append((val, img))
 
             rows = [(mc['param_name'], col_items)]
             make_collage(f"{mc['title']} [{p_label}]", p_text, rows,
