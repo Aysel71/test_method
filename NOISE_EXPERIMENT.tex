@@ -1,0 +1,197 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+
+\definecolor{good}{rgb}{0.10,0.55,0.20}
+\definecolor{bad}{rgb}{0.75,0.15,0.15}
+\newcommand{\good}[1]{\textcolor{good}{#1}}
+\newcommand{\bad}[1]{\textcolor{bad}{#1}}
+
+\title{Эксперимент с модификацией начального шума на SD-1.5:\\
+параметризации DCT и калибровка границ под HPSv3}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Цель и гипотеза}
+
+Диффузионная модель SD-1.5 стартует с гауссова латентного шума
+$z_T \sim \mathcal{N}(0, I)$ формы $(C, H, W) = (4, 64, 64)$ и за $T=50$
+шагов DDIM превращает его в изображение $512\times512$. Обычно $z_T$ берётся
+чисто случайным.
+
+\textbf{Гипотеза.} Низкочастотная структура $z_T$ задаёт глобальную композицию
+и тон будущей картинки, поэтому \emph{структурированная} модификация начального
+шума — это управляемая ручка оптимизации. Эксперимент проверяет, какие
+модификации улучшают метрику человеческого предпочтения HPSv3 и в каких
+границах они безопасны.
+
+\section{Общий pipeline модификации}
+
+Все преобразования выполняются в частотной области (2D~DCT) поканально, на
+$K$ низших радиальных частотах. Для канала $z_c \in \mathbb{R}^{H\times W}$:
+\begin{equation}
+F_c = \mathrm{DCT}_{\text{ortho}}(z_c), \qquad
+z'_c = \mathrm{IDCT}_{\text{ortho}}(F'_c),
+\end{equation}
+где $F'_c$ — модифицированный спектр. Радиальная частота координаты $(u,v)$:
+\begin{equation}
+r(u,v) = \sqrt{u^2 + v^2}, \qquad u,v \in \{0,\dots\},
+\end{equation}
+а множество низких частот $\mathcal{L}_K$ — это $K$ координат с наименьшим $r$.
+
+\paragraph{Ренормировка энергии.} После модификации норма каждого канала
+возвращается к исходной, чтобы менялась только \emph{структура} шума, а не его
+масштаб (иначе модель уходит из рабочего распределения):
+\begin{equation}
+z'_c \leftarrow z'_c \cdot \frac{\lVert z_c \rVert_2}{\lVert z'_c \rVert_2 + \varepsilon}.
+\end{equation}
+Модифицированный $z'$ подаётся в \texttt{StableDiffusionPipeline(latents=$z'$)};
+результат скорится HPSv3.
+
+\section{Стадия 1: варьирование DCT-альфа перед коэффициентами}
+
+Четыре базовых способа модификации спектра на $\mathcal{L}_K$ ($K=10$).
+$f_i \equiv F_c[\mathcal{L}_K]_i$ — $i$-й низкочастотный коэффициент.
+
+\begin{align}
+\text{(1) alpha:}    \quad & f_i' = \alpha\, f_i, & \alpha \in \mathbb{R}, \\
+\text{(2) base:}     \quad & f_i' = f_i + c_i, & c \in \mathbb{R}^{K}, \\
+\text{(3) affine\_v1:} \quad & f_i' = \alpha\, f_i + c, & \alpha \in \mathbb{R},\ c \in \mathbb{R}, \\
+\text{(4) affine\_v2:} \quad & f_i' = a_i\, f_i + c_i, & a, c \in \mathbb{R}^{K}.
+\end{align}
+
+\section{Стадия 2: параметризация формы функции $a(r)$ / $s(r)$}
+
+Здесь модифицируется \emph{профиль} преобразования по радиусу частоты. Вводится
+нормированная переменная и базис Чебышёва:
+\begin{equation}
+\tau(r) = \frac{2\log(r+1)}{\log(r_{\max}+1)} - 1 \in [-1, 1], \qquad
+T_0 = 1,\ T_1 = \tau,\ T_m = 2\tau T_{m-1} - T_{m-2}.
+\end{equation}
+
+\subsection*{Амплитудные методы (сохраняют композицию)}
+
+\paragraph{1. DCT-affine.} Прямая аффинная модификация $K_{\text{aff}}=5$ низших
+коэффициентов, $a_i \ge 0$:
+\begin{equation}
+f_i' = a_i f_i + c_i, \qquad \theta = (a_1,\dots,a_5,\ c_1,\dots,c_5).
+\end{equation}
+
+\paragraph{2. Power-law.} Глобальный наклон спектра:
+\begin{equation}
+a(r) = A\,(r+1)^{-\alpha/2}, \quad F' = a(r)\odot F,\quad F'[0,0]\mathrel{+}=\mu,
+\qquad \theta = (A, \alpha, \mu).
+\end{equation}
+
+\paragraph{3. Log-bands.} Спектр разбит на 5 логарифмических полос по
+$\log(r+1)$; в полосе $i$:
+\begin{equation}
+F' = a_i F + c_i \ \ \text{при}\ \ r \in \text{band}_i,
+\qquad \theta = (a_1,\dots,a_5,\ c_1,\dots,c_5).
+\end{equation}
+
+\paragraph{4. Chebyshev (amplitude).} Гладкая огибающая через полином Чебышёва:
+\begin{equation}
+a(r) = \exp\!\Big(\sum_{m=0}^{3} c_m T_m(\tau(r))\Big), \quad
+F' = a(r)\odot F,\quad F'[0]\mathrel{+}=\mu,
+\qquad \theta = (c_0,\dots,c_3,\mu).
+\end{equation}
+
+\paragraph{5. B-spline.} Кусочно-линейный сплайн через 6 узлов на равномерной
+сетке $\{0,0.2,\dots,1\}$ в нормированном $\log r$:
+\begin{equation}
+a(r) = \exp\!\big(\mathrm{interp}(\tilde r;\ \{y_1,\dots,y_6\})\big),
+\quad \tilde r = \frac{\log(r+1)}{\log(r_{\max}+1)},
+\qquad \theta = (y_1,\dots,y_6,\mu).
+\end{equation}
+
+\paragraph{6. RBF.} Линейная база плюс 3 гауссовых «горба» в лог-частоте:
+\begin{equation}
+\log a(r) = a_0 + b\,\ell + \sum_{j=1}^{3} w_j\,
+\exp\!\Big(\!-\frac{(\ell - \mu_j)^2}{2\sigma^2}\Big),
+\quad \ell = \log(r+1),
+\end{equation}
+с центрами $\mu_j = \{0.2,0.5,0.8\}\cdot\log(r_{\max}+1)$,
+$\sigma = \log(r_{\max}+1)/7.5$, $\theta = (a_0,b,w_1,w_2,w_3,\mu)$.
+
+\subsection*{Знаковые методы (могут менять композицию)}
+
+\paragraph{7. DCT-affine-signed.} Та же формула, что (1), но $a_i$ может быть
+отрицательным — $a_i < 0$ \bad{переворачивает знак} коэффициента $i$:
+\begin{equation}
+f_i' = a_i f_i + c_i, \qquad a_i \in \mathbb{R}.
+\end{equation}
+
+\paragraph{8. Chebyshev-phase.} Гладкая знаковая кривая по всем частотам:
+\begin{equation}
+s(r) = \tanh\!\Big(\sum_{m=0}^{3} c_m T_m(\tau(r))\Big) \in (-1, 1),
+\quad F' = s(r)\odot F, \qquad \theta = (c_0,\dots,c_3).
+\end{equation}
+При $s(r) < 0$ соответствующая полоса частот меняет знак (флип фазы).
+
+\section{Методология калибровки границ под HPSv3}
+
+Для каждой параметризации параметр свипается по заведомо широкому диапазону;
+на каждом значении генерируется картинка и скорится HPSv3, усреднение по
+4 промптам. Граница — наибольший непрерывный интервал вокруг нейтрального
+(identity) значения, где средний HPSv3 не падает ниже $\text{baseline} - m$
+(margin $m = 0.5$). Реализация: \texttt{calibrate\_hpsv3.py}.
+
+\section{Результаты}
+
+Baseline HPSv3 $\approx 8.05$--$8.38$. Главный вывод:
+\begin{quote}
+\textbf{HPSv3 награждает мягкое амплитудное усиление/ослабление низких частот и
+наказывает любой знаковый флип или резкий наклон спектра.}
+\end{quote}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccl}
+\toprule
+Параметризация & Безопасный диапазон & Оптимум (HPSv3) & Вывод \\
+\midrule
+\good{rbf}        & $w_1 \in [-0.34,\ 0.51]$ & $0.17$ \ (\textbf{8.54}) & \good{лучший, $+0.16$} \\
+\good{bspline}    & $y_1 \in [-1.2,\ 0]$     & $-1.2$ \ (8.47)         & \good{помогает} \\
+\good{log\_bands} & $a   \in [0,\ 1.43]$     & $0.57$ \ (8.44)         & \good{помогает} \\
+\good{dct\_affine}& $a_1 \in [0,\ 2.29]$     & $0.57$ \ (8.40)         & \good{помогает} \\
+chebyshev         & $c_0 \in [-1.2,\ 1.2]$   & $\approx$ baseline       & слабый/плоский knob \\
+\bad{power\_law}  & только $\alpha \approx 0$& $0$                      & \bad{любой наклон рушит} \\
+\bad{dct\_affine\_signed} & $a_1 \in [0.86,\ 1.0]$ & $\approx$ identity  & \bad{флип знака ломает} \\
+\bad{chebyshev\_phase}    & $c_0 \ge 2.14$         & $\tanh\!\approx\!+1$ & \bad{безопасна лишь identity} \\
+\bottomrule
+\end{tabular}
+\caption{Калиброванные под HPSv3 границы параметризаций (SD-1.5, 512$\times$512,
+50 шагов DDIM, CFG $7.5$, 4 промпта).}
+\end{table}
+
+\paragraph{Содержательные итоги.}
+\begin{itemize}
+\item Низкочастотные амплитудные методы (rbf, dct\_affine, log\_bands, bspline)
+      имеют оптимум \emph{выше} baseline — значит, начальный шум действительно
+      работает как ручка оптимизации.
+\item Лучший результат — \good{rbf} (локальный гауссов буст низких частот),
+      $+0.16$ HPSv3 над baseline.
+\item Знаковые преобразования (flip / phase) и резкий наклон спектра
+      \bad{деструктивны}: выживает лишь режим, близкий к тождественному — флип
+      низкочастотных коэффициентов разрушает глобальную композицию.
+\end{itemize}
+
+\paragraph{Оговорки.} Границы получены на 4 промптах $\times$ 1 сид, margin $0.5$;
+для трёх «хрупких» методов точную точку слома стоит уточнить более мелким
+свипом (\texttt{calibrate\_hpsv3.py --n\_values 25}). Плотные пошаговые гриды
+(\texttt{sd\_fine\_grids.py}) визуализируют точку слома, в т.ч.
+\texttt{chebyshev\_phase}: $c_0 \in [-5, 15]$ с шагом $1$.
+
+\end{document}
