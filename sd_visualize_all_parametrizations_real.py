@@ -253,75 +253,75 @@ def make_collage(title, prompt, rows, save_path, subtitle=""):
 METHODS = {
     'dct_affine': {
         'func': apply_dct_affine,
-        'test_values': [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+        'test_values': [0.0, 0.25, 0.5, 0.57, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.3],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_1',
         'needs_low_idx': True,
         'title': 'DCT-affine (amplitude only)',
-        'subtitle': 'a_i >= 0; modifies 5 lowest frequencies - EXPANDED RANGE'
+        'subtitle': 'HPSv3-calibrated a_1 in [0, 2.3]; best ~0.57 (HPS 8.40 > base 8.05)'
     },
     'power_law': {
         'func': apply_power_law,
-        'test_values': [-3.0, -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0],
+        'test_values': [-1.0, -0.5, -0.25, -0.1, 0.0, 0.1, 0.25, 0.5, 1.0],
         'base_theta': lambda val: [1.0, val, 0.0],
         'param_name': 'alpha',
         'needs_low_idx': False,
-        'title': 'Power-law WIDE',
-        'subtitle': 'a(r) = A*(r+1)^(-alpha/2); alpha in [-3,+3]'
+        'title': 'Power-law (HPSv3-fragile)',
+        'subtitle': 'a(r)=A*(r+1)^(-alpha/2); HPSv3 likes only alpha~0 - any slope degrades'
     },
     'log_bands': {
         'func': apply_log_bands,
-        'test_values': [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0],
+        'test_values': [0.0, 0.25, 0.5, 0.57, 0.75, 1.0, 1.15, 1.3, 1.43],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_band1',
         'needs_low_idx': False,
-        'title': 'Log-bands EXTREME',
-        'subtitle': '5 logarithmic frequency bands; low band in [0.0,4.0]'
+        'title': 'Log-bands',
+        'subtitle': 'HPSv3-calibrated low band in [0, 1.43]; best ~0.57 (HPS 8.44 > base 7.91)'
     },
     'chebyshev': {
         'func': apply_chebyshev,
-        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
+        'test_values': [-1.2, -0.8, -0.4, -0.2, 0.0, 0.2, 0.4, 0.8, 1.2],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'c_0',
         'needs_low_idx': False,
-        'title': 'Chebyshev (amplitude) WIDE',
-        'subtitle': 'a(r) = exp(sum c_m T_m); c_0 in [-1.2,+1.2]'
+        'title': 'Chebyshev (amplitude, weak knob)',
+        'subtitle': 'a(r)=exp(sum c_m T_m); HPSv3 flat over [-1.2,1.2] - little effect'
     },
     'bspline': {
         'func': apply_bspline,
-        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
+        'test_values': [-1.2, -1.0, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'y_1',
         'needs_low_idx': False,
-        'title': 'B-spline WIDE',
-        'subtitle': 'spline through 6 knots; first knot in [-1.2,+1.2]'
+        'title': 'B-spline',
+        'subtitle': 'HPSv3-calibrated first knot in [-1.2, 0]; best -1.2 (HPS 8.47 > base 8.38)'
     },
     'rbf': {
         'func': apply_rbf,
-        'test_values': [-1.2, -0.8, -0.6, -0.4, -0.2, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2],
+        'test_values': [-0.4, -0.34, -0.2, -0.1, 0.0, 0.1, 0.17, 0.25, 0.35, 0.51],
         'base_theta': lambda val: [0.0, 0.0, val, 0.0, 0.0, 0.0],
         'param_name': 'w_1',
         'needs_low_idx': False,
-        'title': 'RBF WIDE',
-        'subtitle': 'linear base + 3 Gaussian bumps; low bump w in [-1.2,+1.2]'
+        'title': 'RBF (best method)',
+        'subtitle': 'HPSv3-calibrated low bump w in [-0.34, 0.51]; best ~0.17 (HPS 8.54, top)'
     },
     'dct_affine_signed': {
         'func': apply_dct_affine_signed,
-        'test_values': [-6.0, -5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0, 6.0],
+        'test_values': [-2.0, -1.0, 0.0, 0.5, 0.857, 1.0, 1.25, 1.5, 2.0],
         'base_theta': lambda val: [val, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         'param_name': 'a_1',
         'needs_low_idx': True,
-        'title': 'DCT-affine SIGNED EXTREME',
-        'subtitle': 'a_i in [-6,+6]; negative = sign flip -> composition change'
+        'title': 'DCT-affine SIGNED (HPSv3-fragile)',
+        'subtitle': 'HPSv3 survives only a_1 ~[0.86, 1.0]; sign flip (a<0) destroys the image'
     },
     'chebyshev_phase': {
         'func': apply_chebyshev_phase,
-        'test_values': [-15.0, -10.0, -7.0, -5.0, -2.0, 0.0, 2.0, 5.0, 7.0, 10.0, 15.0],
+        'test_values': [-5.0, -2.0, 0.0, 2.14, 3.0, 5.0, 8.0, 11.0, 15.0],
         'base_theta': lambda val: [val, 0.0, 0.0, 0.0],
         'param_name': 'c_0',
         'needs_low_idx': False,
-        'title': 'Chebyshev PHASE EXTREME',
-        'subtitle': 's(r) = tanh(sum c_m T_m); c_0 in [-15,+15] signed curve'
+        'title': 'Chebyshev PHASE (HPSv3-fragile)',
+        'subtitle': 's(r)=tanh(sum c_m T_m); HPSv3 safe only c_0>=2.14 (tanh~+1); flip destroys'
     }
 }
 
@@ -339,7 +339,7 @@ def main():
     if args.methods:
         methods_to_run = [m for m in methods_to_run if m in args.methods]
 
-    total = len(prompts_to_run) * len(methods_to_run) * 7
+    total = len(prompts_to_run) * sum(len(METHODS[m]['test_values']) for m in methods_to_run)
     print("=" * 70)
     print(f"SD-1.5  |  Prompts: {len(prompts_to_run)}  Methods: {len(methods_to_run)}")
     print(f"Total gens: ~{total}")
