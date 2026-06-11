@@ -45,6 +45,8 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--save_dir", type=str, default="results/sd_all_parametrizations")
     p.add_argument("--prompts",  nargs="+", default=None)
+    p.add_argument("--prompt",   type=str, default=None,
+                   help="custom free-text prompt; overrides --prompts with one prompt")
     p.add_argument("--methods",  nargs="+", default=None)
     p.add_argument("--scorer",   type=str, default="none",
                    help="none | hpsv3 | imagereward  (label under each image)")
@@ -331,9 +333,12 @@ def main():
     save_dir = Path(args.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    prompts_to_run = PROMPTS
-    if args.prompts:
+    if args.prompt:
+        prompts_to_run = [("custom", args.prompt)]
+    elif args.prompts:
         prompts_to_run = [p for p in PROMPTS if p[0] in args.prompts]
+    else:
+        prompts_to_run = PROMPTS
 
     methods_to_run = list(METHODS.keys())
     if args.methods:
